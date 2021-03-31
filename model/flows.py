@@ -8,7 +8,7 @@ import scipy.linalg
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+from torch.distributions.gamma import Gamma
 
 def get_mask(in_features, out_features, in_flow_features, mask_type=None):
     """
@@ -53,6 +53,7 @@ class MaskedLinear(nn.Module):
             output += self.cond_linear(cond_inputs)
         return output
 
+nn.MaskedLinear = MaskedLinear
 
 class MADE(nn.Module):
     """ An implementation of MADE
@@ -283,6 +284,27 @@ class Reverse(nn.Module):
         else:
             return inputs[:, self.inv_perm], torch.zeros(
                 inputs.size(0), 1, device=inputs.device)
+
+class SurNorm(nn.Module):
+    """ Surjective normalization layer
+    """
+    def __init__(self, num_inputs):
+        super(SurNorm, self).__init__()
+        self.num_inputs = num_inputs
+        self.pi = nn.Sequential(nn.Linear(10, 1), nn.ReLU())
+
+    # assume that inputs are detached from a graph
+    def forward(self, inputs):
+        s = torch.sum(inputs, dim = 1)
+        dirichlet = inputs / s.reshape(-1, 1)
+        sum_preds = self.pi(dirichlet).squeeze(1)
+        logpsz    = Gamma(sum_preds, 1).log_prob(s) - self.num_inputs * torch.log(sum_preds + 10e-9)
+
+        return dirichlet, logpsz.unsqueeze(1)
+
+    def inverse(self, inputs):
+        return self.pi(inputs)
+
 
 class FlowSequential(nn.Sequential):
     """ A sequential container for flows.

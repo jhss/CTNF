@@ -1,7 +1,8 @@
 import torch
 from torchvision import datasets, transforms
 from torch.utils import data
-from dataset import *
+from data.dataset import *
+from torchvision.datasets import SVHN
 
 def get_loader(dataset, path, bsz, cifar_c_type = None):
     
@@ -17,13 +18,17 @@ def get_loader(dataset, path, bsz, cifar_c_type = None):
                                          download = True, 
                                          transform = train_transform)
         
-        num_train = len(train_dataset)
-        indices   = torch.randperm(num_train).tolist()
+        num_train  = len(train_dataset)
+        indices    = torch.randperm(num_train).tolist()
+        valid_size = 2048
 
         train_idx, valid_idx = indices[valid_size:], indices[:valid_size]
+        print(len(valid_idx))
 
         train_dataset = data.Subset(train_dataset, train_idx)
-        valid_dataset = data.Subset(valid_dataset, valid_idx)
+        valid_dataset = data.Subset(train_dataset, valid_idx)
+        print("train_dataset length: ", len(train_dataset))
+        print("valid_dataset length: ", len(valid_dataset))
 
         train_loader = data.DataLoader(train_dataset,
                                        batch_size = bsz,
@@ -31,7 +36,7 @@ def get_loader(dataset, path, bsz, cifar_c_type = None):
                                        drop_last = True)
 
         valid_loader = data.DataLoader(valid_dataset,
-                                       batch_size = 2048,
+                                       batch_size = 1024,
                                        shuffle = True,
                                        drop_last = True)
 

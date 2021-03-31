@@ -3,34 +3,28 @@ import torch
 import torch.nn as nn
 import os
 import sys
-import flows as fnn
+sys.path.append(".")
+from collections import OrderedDict
+from tqdm import tqdm
+
+from model import resnet
+from model import flows as fnn
+from model.ctnf import CTNF
+from utils.metrics_lib import expected_calibration_error_multiclass as ece
+from data.data_loader import *
 
 from torch.distributions.dirichlet import Dirichlet
 from torch.distributions.multivariate_normal import MultivariateNormal
-from collections import OrderedDict
-from torch.distributions.gamma import Gamma
-import torch.distributions as tdists
-
-from tensorboardX import SummaryWriter
-from time import sleep
 from torch import optim
 from torch.nn.utils import clip_grad_norm_
 from torch.utils import data
-from tqdm import tqdm
 from torchvision import transforms as tvt
 from torchvision import datasets as tdatasets
-from metrics_lib import expected_calibration_error_multiclass as ece
-from SupContrast.networks.resnet_big import SupConResNet
-
-import data as data_
-import utils
 import torch.nn.functional as F
 
-from SupContrast.networks.resnet_big import SupConResNet
-from SupContrast.losses import SupConLoss
 from utils.torchutils import prediction, eval_log_prob, eval_logpsz, wasserstein_example
-from collections import OrderedDict
-from tqdm import tqdm
+# Why doesn't this work?
+#from utils.metrics_lib import expected_calibration_error_multiclass as ece
 
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning) 
@@ -39,6 +33,8 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 train_loader, valid_loader = get_loader(dataset = 'cifar',
                                         path = '/home/jh/Documents/Research/Datasets',
                                         bsz = 32)
+#print(next(iter(valid_loader)))
+#sys.exit()
 
 # Three type of corruptions exist (speckle_noise, pixelate, contrast)
 corruption_loader = get_loader(dataset = 'cifar_c',
@@ -51,80 +47,26 @@ ood_loader = get_loader(dataset = 'svhn',
                         path = '/home/jh/Documents/Research/Datasets',
                         bsz = 500)
 
+base_type = 'dirichlet'
 
-p_type = 'dirichlet'
-flow_type = 'maf'
-alphas = [7.0, 0.5]
+ctnf = CTNF(n_class = 10, 
+            n_flow_blocks = 6, 
+            n_flow_hidden = 64,
+            base_dist = base_type,
+            alphas = [7.0, 0.5])
 
-if p_type == 'dirichlet':
-    base_dist = []
-    for i in range(10):
-        concentration = alphas[1] * torch.ones(10).cuda()
-        concentration[i] = alphas[0]
-        base_dist.append(Dirichlet(concentration))
-elif p_type == 'gmm':
-    base_dist = []
-    for i in range(10):
-        mean = torch.randn(10).cuda()
-        print("mean: ", mean)
-        std  = 0.1*torch.ones(10).cuda()
-        base_dist.append(MultivariateNormal(mean, scale_tril = torch.diag(std)))
+ctnf.load_encoder('/home/jh/Documents/Research/CTNF/SupContrast/save/SupCon/cifar10_models/SupCon_cifar10_resnet18_lr_0.5_decay_0.0001_bsz_512_temp_0.1_trial_0_1000_cosine_warm/ckpt_epoch_300.pth')
+ctnf.encoder.eval()
 
-encoder = SupConResNet()
-device = 'cuda'
-
-model = torch.load('/home/jh/Documents/Research/CTNF/SupContrast/save/SupCon/cifar10_models/SupCon_cifar10_resnet18_lr_0.5_decay_0.0001_bsz_512_temp_0.1_trial_0_1000_cosine_warm/ckpt_epoch_300.pth')['model']
-
-new_model = OrderedDict()
-for key, value in model.items():
-    new_key = key.split(".")
-    new_key = key.replace("module.", "")
-    new_model[new_key] = value
-
-encoder.load_state_dict(new_model)
-encoder = encoder.to(device)
-cnt = 0
-for param in encoder.parameters():
-    cnt += param.numel()
-print("number of encoder parameters: ", cnt)
-
-encoder.eval()
-
-pi = nn.Sequential(nn.Linear(10, 1), nn.ReLU()).cuda()
-
-if flow_type == 'maf':
-    modules = []
-    n_blocks = 6
-    num_inputs = 10
-    num_hidden = 64
-
-    for _ in range(n_blocks):
-        modules += [
-            fnn.MADE(num_inputs, num_hidden, None, act = 'sigmoid'),
-            fnn.BatchNormFlow(num_inputs),
-            fnn.Reverse(num_inputs)
-        ]
-
-    flow = fnn.FlowSequential(modules, p_type).to(device)
-
-cnt = 0
-for param in flow.parameters():
-    cnt += param.numel()
-print("number of flow parameters: ", cnt)
-optimizer = optim.Adam(flow.parameters(), lr = 0.01)
-pi_optim  = optim.Adam(pi.parameters(), lr = 0.01)
+# optimize MAF and SurNorm, respectively.
+optimizer = optim.Adam(ctnf.flows.parameters(), lr = 0.01)
+pi_optim  = optim.Adam(ctnf.surnorm.parameters(), lr = 0.01)
 scheduler = optim.lr_scheduler.StepLR(optimizer, step_size = 2000, gamma = 0.1)
+device    = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 epochs = 30
-
-iters = 3
-eps = 0.15
-gamma_eps = 10e-9
-w_adv = True
-cnt = 0
-s_cnt = 0
-
-dro = 'dro' if w_adv == True else 'normal'
-
+eps = 10e-9
+w_adv = False
 
 for epoch in range(epochs):
     for step, (x, y) in tqdm(enumerate(train_loader)):
@@ -134,37 +76,34 @@ for epoch in range(epochs):
         
         # [Step1] Encoding
         with torch.no_grad():
-            latents = encoder(x)
+            latents = ctnf.encoder(x)
 
         # [Step2] Foward to Flow 
-        gamma, sldj = flow(latents)
+        gamma, sldj  = ctnf.flows(latents)
+        dirichlet, _ = ctnf.surnorm(gamma) 
 
-        batch = latents.shape[0]
-
+        # [Step3] Optimize pi_{\phi}(w)
+        
+        s_preds = ctnf.surnorm.inverse(dirichlet.detach().clone()).squeeze(1)
         s = torch.sum(gamma, dim = 1).detach().clone()
-        dirichlet = gamma.detach() / s.reshape(-1, 1)
 
         pi_optim.zero_grad()
-        s_preds   = pi(dirichlet).squeeze(1)
         l2_loss = torch.mean(torch.square(s_preds - s))
         l2_loss.backward()
         pi_optim.step()
-        
-        s_preds = pi(dirichlet).squeeze(1).detach().clone()
-        logpsz = eval_logpsz(gamma, s_preds)
-        #sum_gamma = torch.sum(gamma, dim = 1)
-        #s_preds = pi(dirichlet).squeeze(1).detach().clone()
-        #s_jacob = tdists.normal.Normal(s_preds, 1).log_prob(sum_gamma)
-        # [Step3] Evaluate log_prob
-        log_prob = eval_log_prob(p_type, gamma, y, base_dist)
-        nll = -torch.mean(log_prob + sldj + logpsz)
 
-        # [Step4] Generates W-adv example
+        # [Step4] Evaluate negative log-likelihood
+
+        dirichlet, logpsz = ctnf.surnorm(gamma)
+        base_log_prob   = ctnf.log_prob(dirichlet, y)
+        nll = -torch.mean(base_log_prob + sldj + logpsz)
+
+        # [Step5] Generates W-adv example
         
         if w_adv == True:
             w_img = wasserstein_example(x.detach().clone(), y.detach().clone(),
                                         encoder = encoder, lamb = 1.5, max_lr0 = 0.01,
-                                        flow = flow, log_type = p_type, flow_type = flow_type,
+                                        flow = flow, log_type = p_type,
                                         base_dist = base_dist, s_preds = s_preds)
 
 
@@ -178,18 +117,17 @@ for epoch in range(epochs):
 
             w_gamma, w_sldj = flow(w_latents)
             w_gamma /= torch.sum(w_gamma, dim = 1, keepdim = True)
-            entropy = torch.sum(w_gamma * torch.log(w_gamma + gamma_eps), dim = 1)
+            entropy = torch.sum(w_gamma * torch.log(w_gamma + eps), dim = 1)
             entropy = torch.mean(entropy)
             
             loss = nll + 6.0*entropy
-            #loss = nll
         else:
             loss = nll
 
-        flow.zero_grad()
-        #optimizer.zero_grad()
+        # [Step6] Optimize flow
+        ctnf.flows.zero_grad()
         loss.backward()
-        clip_grad_norm_(flow.parameters(), 0.5)
+        clip_grad_norm_(ctnf.flows.parameters(), 0.5)
         optimizer.step()
         scheduler.step()
 
@@ -197,23 +135,26 @@ for epoch in range(epochs):
             for param in optimizer.param_groups:
                 print("Learning Rate: ", param['lr'])
             cnt = 0
-            adv_cnt = 0
             total = 0
             probs = []
             labels = []
             valid_probs = []
             ood_probs = []
             
-            for val_batch in val_loader:
+            '''
+            for val_batch in valid_loader:
                 x = val_batch[0].to(device)
                 x.requires_grad = True
                 y = val_batch[1].to(device)
 
                 with torch.no_grad():
-                    latents = encoder(x)
+                    latents = ctnf.encoder(x)
          
-                gamma, sldj = flow(latents)
-                preds = prediction(gamma, sldj, alphas, p_type, base_dists = base_dist, pi = pi)
+                gamma, sldj = ctnf.flows(latents)
+                dirichlet, logpsz = ctnf.surnorm(gamma)
+                preds = ctnf.log_prob(dirichlet, sldj + logpsz)
+                #preds = prediction(dirichlet, sldj + logpsz, base_type)
+                #preds = prediction(gamma, sldj, alphas, p_type, base_dists = base_dist, pi = pi)
 
                 preds_idx = torch.max(preds, dim = 1)[1].cuda()
                 cnt += sum(y == preds_idx)
@@ -229,9 +170,9 @@ for epoch in range(epochs):
             labels = np.asarray(labels)
             valid_entropy = -np.sum(probs * np.log(probs + 10e-9), axis = 1)
             print("{}th epoch {}th step, \nValidation Accuracy: {:.3f}, ece: {:.3f}".format(epoch, step, val_score, ece(np.asarray(probs), np.asarray(labels))))
-            np.save("./data/probs/{}_valid_probs_{}.npy".format(dro, s_cnt), probs)
-            
-            for i, batch in enumerate(train_c_loader):
+            '''
+
+            for i, batch in enumerate(corruption_loader):
                 cnt, total = (0, 0)
                 probs = []
                 labels = []
@@ -239,11 +180,13 @@ for epoch in range(epochs):
                 y = torch.as_tensor(batch[1], device = device, dtype = torch.int64)
                 
                 with torch.no_grad():
-                    latents = encoder(x)
+                    latents = ctnf.encoder(x)
 
-                gamma, sldj = flow(latents)
+                gamma, sldj = ctnf.flows(latents)
+                dirichlet, logpsz = ctnf.surnorm(gamma)
+                preds = ctnf.predict(dirichlet, sldj+logpsz)
 
-                preds = prediction(gamma, sldj, alphas, p_type, base_dists = base_dist, pi = pi)
+                #preds = prediction(gamma, sldj, alphas, p_type, base_dists = base_dist, pi = pi)
                 preds = preds.to(device)
                 preds_idx = torch.max(preds, dim = 1)[1]
                 
@@ -259,6 +202,7 @@ for epoch in range(epochs):
                 print("Corruption {} ACC: {:.3f} ECE: {:.3f}"\
                        .format(i+1, val_c_score, ece(np.asarray(probs), np.asarray(labels))))
 
+        '''
             entropies = []
             for i, batch in enumerate(svhn_loader):
 
@@ -293,7 +237,6 @@ for epoch in range(epochs):
                 sys.exit()
             print("valid entropy: ", np.quantile(valid_entropy, [0, 0.25, 0.5, 0.75, 1]))
             print("ood entropy: ", np.quantile(entropies.cpu().detach().numpy(), [0, 0.25, 0.5, 0.75, 1]))
-            '''
             lsun_entropies = []
             lsun_probs = []
             for i, batch in enumerate(lsun_loader):
@@ -344,10 +287,6 @@ for epoch in range(epochs):
             print("tiny entropy: ", np.quantile(tiny_entropies.cpu().detach().numpy(), [0, 0.25, 0.5, 0.75, 1]))
             ood_probs = torch.cat(ood_probs)
             print(ood_probs.shape)
-            np.save('./data/probs/{}_svhn_probs_{}.npy'.format(dro, s_cnt), ood_probs.cpu().detach().numpy())
-            np.save('./data/probs/{}_lsun_probs_{}.npy'.format(dro, s_cnt), lsun_probs.cpu().detach().numpy())
-            np.save('./data/probs/{}_tiny_probs_{}.npy'.format(dro, s_cnt), tiny_probs.cpu().detach().numpy())
-            s_cnt += 1
             '''
         #print("entropy mean: ", torch.mean(entropies))
             #print("entropy[:10]: ", entropies[:10])

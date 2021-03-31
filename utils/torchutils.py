@@ -187,8 +187,7 @@ def eval_logpsz(gamma, s_preds):
 
     return logpsz
 
-def wasserstein_example(x, y, lamb, max_lr0, encoder, flow, log_type, flow_type, base_dist,
-                             s_preds):
+def wasserstein_example(x, y, lamb, max_lr0, encoder, flow, log_type, base_dist, s_preds):
     
     z_hat = x.data.clone().cuda()
     z_hat = Variable(z_hat, requires_grad = True)
