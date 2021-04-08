@@ -3,7 +3,7 @@ import torch.nn as nn
 import sys
 from collections import OrderedDict
 from model import flows
-from model.resnet import resnet20
+from model.encoder import resnet20, lenet
 from torch.distributions.dirichlet import Dirichlet
 
 def stable_softmax(preds):
@@ -13,7 +13,9 @@ def stable_softmax(preds):
     return p
 
 class CTNF(nn.Module):
-    def __init__(self, n_class, # the number of classes
+    def __init__(self, 
+                 encoder_type, # ['resnet20', 'lenet']
+                 n_class, # the number of classes
                  n_flow_blocks, # the number of blocks in flow
                  n_flow_hidden, # the number of hidden nodes in flow
                  base_dist,     # type of base distribution in flow (Dirichlet or Gaussian Mixture)
@@ -30,8 +32,11 @@ class CTNF(nn.Module):
                 flows.BatchNormFlow(n_class),
                 flows.Reverse(n_class)
             ]
-        
-        self.encoder = resnet20().to(device)
+        if encoder_type == 'resnet20':
+            self.encoder = resnet20().to(device)
+        elif encoder_type == 'lenet':
+            self.encoder = lenet().to(device)
+
         self.flows   = flows.FlowSequential(flow_modules, base_dist).to(device)
         self.surnorm = flows.SurNorm(n_class).to(device);
 

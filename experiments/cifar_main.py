@@ -7,7 +7,6 @@ sys.path.append(".")
 from collections import OrderedDict
 from tqdm import tqdm
 
-from model import resnet
 from model import flows as fnn
 from model.ctnf import CTNF
 from utils.metrics_lib import expected_calibration_error_multiclass as ece
@@ -22,7 +21,7 @@ from torchvision import transforms as tvt
 from torchvision import datasets as tdatasets
 import torch.nn.functional as F
 
-from utils.torchutils import prediction, eval_log_prob, eval_logpsz, wasserstein_example
+from utils.torchutils import wasserstein_example
 # Why doesn't this work?
 #from utils.metrics_lib import expected_calibration_error_multiclass as ece
 
@@ -49,13 +48,14 @@ ood_loader = get_loader(dataset = 'svhn',
 
 base_type = 'dirichlet'
 
-ctnf = CTNF(n_class = 10, 
+ctnf = CTNF(encoder_type = 'resnet20',
+            n_class = 10, 
             n_flow_blocks = 6, 
             n_flow_hidden = 64,
             base_dist = base_type,
             alphas = [7.0, 0.5])
 
-ctnf.load_encoder('/home/jh/Documents/Research/CTNF/SupContrast/save/SupCon/cifar10_models/SupCon_cifar10_resnet18_lr_0.5_decay_0.0001_bsz_512_temp_0.1_trial_0_1000_cosine_warm/ckpt_epoch_300.pth')
+ctnf.load_encoder("./pretrained_models/cifar_300.pth")
 ctnf.encoder.eval()
 
 # optimize MAF and SurNorm, respectively.
@@ -66,7 +66,7 @@ device    = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 epochs = 30
 eps = 10e-9
-w_adv = False
+w_adv = True
 
 for epoch in range(epochs):
     for step, (x, y) in tqdm(enumerate(train_loader)):
@@ -102,9 +102,8 @@ for epoch in range(epochs):
         
         if w_adv == True:
             w_img = wasserstein_example(x.detach().clone(), y.detach().clone(),
-                                        encoder = encoder, lamb = 1.5, max_lr0 = 0.01,
-                                        flow = flow, log_type = p_type,
-                                        base_dist = base_dist, s_preds = s_preds)
+                                        lamb = 1.5, max_lr0 = 0.01,
+                                        model = ctnf)
 
 
             if torch.isnan(w_img).any() == True:
@@ -112,15 +111,15 @@ for epoch in range(epochs):
                 sys.exit()
 
             with torch.no_grad():
-                w_latents = encoder(w_img)
+                w_latents = ctnf.encoder(w_img)
             # [Step5] Increase the entropy of W-adv
 
-            w_gamma, w_sldj = flow(w_latents)
+            w_gamma, w_sldj = ctnf.flows(w_latents)
             w_gamma /= torch.sum(w_gamma, dim = 1, keepdim = True)
             entropy = torch.sum(w_gamma * torch.log(w_gamma + eps), dim = 1)
             entropy = torch.mean(entropy)
             
-            loss = nll + 6.0*entropy
+            loss = nll + 5.0*entropy
         else:
             loss = nll
 
@@ -202,22 +201,23 @@ for epoch in range(epochs):
                 print("Corruption {} ACC: {:.3f} ECE: {:.3f}"\
                        .format(i+1, val_c_score, ece(np.asarray(probs), np.asarray(labels))))
 
-        '''
+        
             entropies = []
-            for i, batch in enumerate(svhn_loader):
+            for i, batch in enumerate(ood_loader):
 
                 x = batch[0].to(device)
                 
                 with torch.no_grad():
-                    latents = encoder(x)
+                    latents = ctnf.encoder(x)
 
-                gamma, sldj = flow(latents)
+                gamma, sldj = ctnf.flows(latents)
+                dirichlet, logpsz = ctnf.surnorm(gamma)
 
                 if torch.isnan(gamma).any() == True:
                     print("[DEBUG] NaN value is detected in svhn_gamma")
                     sys.exit()
 
-                preds = prediction(gamma, sldj, alphas, p_type, base_dists = base_dist, pi = pi)
+                preds = ctnf.predict(dirichlet, sldj+logpsz)
                 if torch.isnan(preds).any() == True:
                     print("[DEBUG] NaN value is detected in svhn_preds")
                     sys.exit()
@@ -229,14 +229,15 @@ for epoch in range(epochs):
                 if i == 10: break
                            
             entropies = torch.cat(entropies)
-            valid_entropy_quantile = np.quantile(valid_entropy, [0, 0.25, 0.5, 0.75, 1])
+            #valid_entropy_quantile = np.quantile(valid_entropy, [0, 0.25, 0.5, 0.75, 1])
             ood_entropy_quantile   = np.quantile(entropies.cpu().detach().numpy(), 
                                                  [0, 0.25, 0.5, 0.75, 1])
             if np.isnan(ood_entropy_quantile).any() == True:
                 print("[DEBUG] NaN Value is detected in ood_entropy")
                 sys.exit()
-            print("valid entropy: ", np.quantile(valid_entropy, [0, 0.25, 0.5, 0.75, 1]))
+            #print("valid entropy: ", np.quantile(valid_entropy, [0, 0.25, 0.5, 0.75, 1]))
             print("ood entropy: ", np.quantile(entropies.cpu().detach().numpy(), [0, 0.25, 0.5, 0.75, 1]))
+            '''
             lsun_entropies = []
             lsun_probs = []
             for i, batch in enumerate(lsun_loader):
