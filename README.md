@@ -30,10 +30,10 @@ Assume that the pre-trained model is downloaded on ./data/weights folder.
 
 **CIFAR-10-Corruption and OOD Detection for SVHN, LSUN, and TinyImageNet**
 
-	python experiments/cifar_c_main.py --ood SVHN
+	python experiments/cifar_c_main.py --ood svhn
 
 **MNIST Rotation and OOD detection for F-MNIST, NotMNIST, and EMNIST-letters**
 
-	python experiments/mnist_r_main.py --ood F-MNIST
+	python experiments/mnist_r_main.py --ood fmnist
 
 
