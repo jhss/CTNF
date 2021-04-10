@@ -34,21 +34,26 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--ood', 
                     default = 'fmnist',
                     help = 'OOD dataset (fmnist, emnist, nmnist)')
+parser.add_argument('--valid_data_path',
+                    default = '/home/jh/Documents/Research/Datasets')
+parser.add_argument('--ood_data_path',
+                    default = '/home/jh/Documents/Research/Datasets/',
+                    help = 'OOD data path (F-MNIST, EMNIST, Not-MNIST)')
 args = parser.parse_args()
 
 # MNIST loader
 train_loader, valid_loader = get_loader(dataset = 'mnist',
-                                        path = '/home/jh/Documents/Research/Datasets',
+                                        path = args.valid_data_path,
                                         bsz = 32)
 
 # Three type of corruptions exist (speckle_noise, pixelate, contrast)
 corruption_loader = get_loader(dataset = 'mnist_r',
-                               path = "/home/jh/Documents/Research/Datasets/",
+                               path = args.valid_data_path,
                                bsz = 500)
 
 # Three type of OOD exist ()
 ood_loader = get_loader(dataset = args.ood,
-                        path = '/home/jh/Documents/Research/Datasets',
+                        path = args.ood_data_path,
                         bsz = 500)
 
 base_type = 'dirichlet'
