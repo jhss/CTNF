@@ -6,7 +6,8 @@ This repository provides the official PyTorch implementation code of the paper.
 
 ## Dependencies
 
-	conda env create -f environment.yml
+* PyTorch 1.7
+* TensorFlow 2.3
 
 ## Data
 
