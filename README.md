@@ -2,7 +2,7 @@
 ## Contrastive Normalizing Flow: Robust Uncertainty Estimation Under Distributional Shifts
 This repository provides the official PyTorch implementation code of the paper.
 
-> Juhong Song, Jaewoong Choi, Myungjoo Kang, Contrastive Normalizing Flow: Robust Uncertainty Estimation Under Distributional Shifts, arXiv, 2021
+> Juhong Song, Jaewoong Choi, Myungjoo Kang, Contrastive Normalizing Flow: Robust Uncertainty Estimation Under Distributional Shifts (Under review)
 
 ## Dependencies
 
