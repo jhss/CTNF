@@ -21,11 +21,11 @@ For OOD shift datasets, SVHN, LSUN, [TinyImageNet](https://www.kaggle.com/c/tiny
 
 **Train CTNF for CIFAR dataset**
 
-	python cifar_train.py
+	python cifar_train.py --train_data_path <path> --c_data_path <Corruption data path> -- ood_data_path <OOD data path>
 
 **Train CTNF for MNIST dataset**
 
-	python mnist_train.py
+	python mnist_train.py --train_data_path <path> --c_data_path <Corruption data path> -- ood_data_path <OOD data path>
 
 ## Experiment using pre-trained model
 
@@ -33,10 +33,10 @@ Assume that the pre-trained model is downloaded on ./data/weights folder.
 
 **CIFAR-10-Corruption and OOD Detection for SVHN, LSUN, and TinyImageNet**
 
-	python experiments/cifar_c_main.py --ood svhn
+	python experiments/cifar_c_main.py --ood svhn --c_data_path <Corruption data path> --ood_path <your_path>
 
 **MNIST Rotation and OOD detection for F-MNIST, NotMNIST, and EMNIST-letters**
 
-	python experiments/mnist_r_main.py --ood fmnist
+	python experiments/mnist_r_main.py --ood fmnist --c_data_path <Corruption data path> --ood_path <your_path>
 
 
