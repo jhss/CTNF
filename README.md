@@ -33,10 +33,10 @@ Assume that the pre-trained model is downloaded on ./data/weights folder.
 
 **CIFAR-10-Corruption and OOD Detection for SVHN, LSUN, and TinyImageNet**
 
-	python experiments/cifar_c_main.py --ood svhn --c_data_path <Corruption data path> --ood_path <your_path>
+	python experiments/cifar_c_main.py --ood svhn --valid_data_path <valid data path> --c_data_path <Corruption data path> --ood_path <your_path>
 
 **MNIST Rotation and OOD detection for F-MNIST, NotMNIST, and EMNIST-letters**
 
-	python experiments/mnist_r_main.py --ood fmnist --c_data_path <Corruption data path> --ood_path <your_path>
+	python experiments/mnist_r_main.py --ood fmnist --valid_data_path <valid data path> --ood_path <your_path>
 
 

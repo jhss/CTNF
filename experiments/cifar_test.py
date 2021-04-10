@@ -32,7 +32,7 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--ood', default = 'svhn', help = 'OOD dataset (svhn, lsun, tiny)')
-parser.add_argument('--train_data_path', default = '/home/jh/Documents/Research/Datasets')
+parser.add_argument('--valid_data_path', default = '/home/jh/Documents/Research/Datasets')
 parser.add_argument('--c_data_path', 
                     default = '/home/jh/Documents/Research/Datasets/CIFAR-10-C',
                     help = 'Corruption data path (CIFAR-10-C)')
@@ -43,7 +43,7 @@ args = parser.parse_args()
 
 # CIFAR-10 loader
 train_loader, valid_loader = get_loader(dataset = 'cifar',
-                                        path = args.train_data_path,
+                                        path = args.valid_data_path,
                                         bsz = 32)
 
 # Three type of corruptions exist (speckle_noise, pixelate, contrast)
