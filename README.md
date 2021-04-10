@@ -11,8 +11,10 @@ This repository provides the official PyTorch implementation code of the paper.
 ## Data
 
 The base dataset of the experiments use MNIST and CIFAR.
+
 For distributional shift datasets, MNIST rotation and [CIFAR-10-C](https://zenodo.org/record/2535967) are used.
-For OOD shift datasets, SVHN, LSUN, TinyImageNet, F-MNIST, NotMNIST, and EMNIST-letters are used.
+
+For OOD shift datasets, SVHN, LSUN, [TinyImageNet](https://www.kaggle.com/c/tiny-imagenet/data), F-MNIST, NotMNIST, and EMNIST-letters are used.
 
 ## Train the proposed model
 
