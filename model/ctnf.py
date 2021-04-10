@@ -5,6 +5,7 @@ from collections import OrderedDict
 from model import flows
 from model.encoder import resnet20, lenet
 from torch.distributions.dirichlet import Dirichlet
+from utils.torchutils import *
 
 def stable_softmax(preds):
     max_preds = torch.max(preds, dim = 1, keepdim = True)[0]
@@ -64,6 +65,30 @@ class CTNF(nn.Module):
             new_model[new_key] = value
 
         self.encoder.load_state_dict(new_model)
+
+    def load_flow(self, path):
+        temp_model = torch.load(path)
+        new_model = OrderedDict()
+        for key, value in temp_model.items():
+            new_key = key.split(".")
+            new_key = key.replace("module.", "")
+            new_key = key.replace("encoder.", "")
+            if key[:4] == 'head': continue
+            new_model[new_key] = value
+
+        self.flows.load_state_dict(new_model)
+    
+    def load_surnorm(self, path):
+        temp_model = torch.load(path)
+        new_model = OrderedDict()
+        for key, value in temp_model.items():
+            new_key = key.split(".")
+            new_key = key.replace("module.", "")
+            new_key = key.replace("encoder.", "")
+            if key[:4] == 'head': continue
+            new_model[new_key] = value
+
+        self.surnorm.load_state_dict(new_model)
     
     def log_prob(self, rvs, y):
         eps = 10e-9
@@ -90,10 +115,3 @@ class CTNF(nn.Module):
 
         return batch_categorical_dist
 
-
-    def forward(self, x):
-        
-        latents     = self.encoder(x)
-        gamma, sldj = self.flows(latents)
-
-        return 

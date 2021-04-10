@@ -4,6 +4,7 @@ import torch
 import torchvision
 from torch.utils.data import Dataset
 import sys
+from skimage import io
 
 class CIFAR10_C(Dataset):
     
@@ -45,20 +46,18 @@ class LSUN(Dataset):
     def __init__(self, path, transform = None):
  
         self.root_dir = path
-        self.imgs = [io.imread(os.path.join(self.root_dir, "{}.jpg".format(i))) for i in range(10000)]
+        self.imgs = [io.imread(os.path.join(self.root_dir, "{}.jpg".format(i))) 
+                        for i in range(10000)]
         self.imgs = np.stack(self.imgs, axis = 0)
         self.transform = transform
 
     def __len__(self):
-       
         return len(self.imgs)
 
     def __getitem__(self, index):
-       
         img   = self.imgs[index]
-
         if self.transform:
-             img = self.transform(img)
+            img = self.transform(img)
 
         return img
 

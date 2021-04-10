@@ -3,6 +3,7 @@ from torchvision import datasets, transforms
 from torch.utils import data
 from data.dataset import *
 from torchvision.datasets import SVHN, MNIST, FashionMNIST, EMNIST, ImageFolder
+import sys
 
 def get_loader(dataset, path, bsz, cifar_c_type = None):
     
@@ -13,22 +14,19 @@ def get_loader(dataset, path, bsz, cifar_c_type = None):
         train_transform = transforms.Compose([ transforms.ToTensor(),
                                                transforms.Normalize(mean = mean, std = std) ])
 
-        train_dataset = datasets.CIFAR10(root = path, 
+        cifar_dataset = datasets.CIFAR10(root = path, 
                                          train = True, 
                                          download = True, 
                                          transform = train_transform)
         
-        num_train  = len(train_dataset)
+        num_train  = len(cifar_dataset)
         indices    = torch.randperm(num_train).tolist()
         valid_size = 2048
 
         train_idx, valid_idx = indices[valid_size:], indices[:valid_size]
-        print(len(valid_idx))
 
-        train_dataset = data.Subset(train_dataset, train_idx)
-        valid_dataset = data.Subset(train_dataset, valid_idx)
-        print("train_dataset length: ", len(train_dataset))
-        print("valid_dataset length: ", len(valid_dataset))
+        train_dataset = data.Subset(cifar_dataset, train_idx)
+        valid_dataset = data.Subset(cifar_dataset, valid_idx)
 
         train_loader = data.DataLoader(train_dataset,
                                        batch_size = bsz,
@@ -36,9 +34,8 @@ def get_loader(dataset, path, bsz, cifar_c_type = None):
                                        drop_last = True)
 
         valid_loader = data.DataLoader(valid_dataset,
-                                       batch_size = 1024,
-                                       shuffle = True,
-                                       drop_last = True)
+                                       batch_size = 2000,
+                                       shuffle = True)
 
         return (train_loader, valid_loader)
 
@@ -78,7 +75,7 @@ def get_loader(dataset, path, bsz, cifar_c_type = None):
                                         drop_last = True)
 
         valid_loader  = data.DataLoader(valid_dataset,
-                                        batch_size = 2048,
+                                        batch_size = 2000,
                                         shuffle = True,
                                         drop_last = True)
 
@@ -126,7 +123,6 @@ def get_loader(dataset, path, bsz, cifar_c_type = None):
         lsun_loader  = data.DataLoader(dataset = lsun_dataset,
                                        batch_size = 500,
                                        shuffle = True)
-
         return lsun_loader
 
     elif dataset == 'tiny':
@@ -149,8 +145,10 @@ def get_loader(dataset, path, bsz, cifar_c_type = None):
         train_transform = transforms.Compose([ transforms.ToTensor(),
                                                transforms.Normalize(mean = 0.1307, std = 0.3081) ])
 
-        fmnist_dataset  = FashionMNIST(root = '/home/jh/Documents/Research/Datasets', train = True,
-                                       download = True, transform = train_transform)
+        fmnist_dataset  = FashionMNIST(root = path,
+                                       train = True,
+                                       download = True, 
+                                       transform = train_transform)
 
         fmnist_loader   = data.DataLoader(dataset = fmnist_dataset, batch_size = 500)
         
@@ -159,8 +157,11 @@ def get_loader(dataset, path, bsz, cifar_c_type = None):
         train_transform = transforms.Compose([ transforms.ToTensor(),
                                                transforms.Normalize(mean = 0.1307, std = 0.3081) ])
 
-        emnist_dataset  = EMNIST(root = '/home/jh/Documents/Research/Datasets', train = True,
-                                 download = True, transform = train_transform)
+        emnist_dataset  = EMNIST(root = path,
+                                 train = True,
+                                 split = 'letters',
+                                 download = True, 
+                                 transform = train_transform)
 
         emnist_loader   = data.DataLoader(dataset = emnist_dataset, batch_size = 500)
         
@@ -170,9 +171,9 @@ def get_loader(dataset, path, bsz, cifar_c_type = None):
         train_transform = transforms.Compose([ transforms.ToTensor(),
                                                transforms.Normalize(mean = 0.1307, std = 0.3081) ])
 
-        nmnist_dataset  = ImageFolder(root = '/home/jh/Documents/Research/Datasets', train = True,
-                                      download = True, transform = train_transform)
-
+        nmnist_dataset  = ImageFolder(root = path, 
+                                      transform = train_transform)
+        
         nmnist_loader   = data.DataLoader(dataset = nmnist_dataset, batch_size = 500)
 
         return nmnist_loader

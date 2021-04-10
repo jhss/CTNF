@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import os
 import sys
+import argparse
 sys.path.append(".")
 from collections import OrderedDict
 from tqdm import tqdm
@@ -28,40 +29,51 @@ from utils.torchutils import wasserstein_example
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning) 
 
-# CIFAR-10 loader
-train_loader, valid_loader = get_loader(dataset = 'cifar',
-                                        path = '/home/jh/Documents/Research/Datasets',
+parser = argparse.ArgumentParser()
+parser.add_argument('--ood', 
+                    default = 'fmnist',
+                    help = 'OOD dataset (fmnist, emnist, nmnist)')
+parser.add_argument('--train_data_path', default = '/home/jh/Documents/Research/Datasets')
+parser.add_argument('--c_data_path',
+                    default = '/home/jh/Documents/Research/Datasets/CIFAR-10-C',
+                    help = 'Corruption data path (CIFAR-10-C)')
+parser.add_argument('--ood_data_path',
+                    default = '/home/jh/Documents/Research/Datasets/',
+                    help = 'OOD data path (SVHN, LSUN, Tiny ImageNet)')
+
+args = parser.parse_args()
+
+# MNIST loader
+train_loader, valid_loader = get_loader(dataset = 'mnist',
+                                        path = args.train_data_path,
                                         bsz = 32)
-#print(next(iter(valid_loader)))
-#sys.exit()
 
 # Three type of corruptions exist (speckle_noise, pixelate, contrast)
-corruption_loader = get_loader(dataset = 'cifar_c',
-                               path = "/home/jh/Documents/Research/Datasets/CIFAR-10-C",
-                               bsz = 500,
-                               cifar_c_type = 'speckle_noise')
+corruption_loader = get_loader(dataset = 'mnist_r',
+                               path = args.train_data_path,
+                               bsz = 500)
 
-# Three type of OOD exist (svhn, lsun, tiny)
-ood_loader = get_loader(dataset = 'svhn',
-                        path = '/home/jh/Documents/Research/Datasets',
+# Three type of OOD exist ()
+ood_loader = get_loader(dataset = args.ood,
+                        path = args.ood_data_path,
                         bsz = 500)
 
 base_type = 'dirichlet'
 
-ctnf = CTNF(encoder_type = 'resnet20',
+ctnf = CTNF(encoder_type = 'lenet',
             n_class = 10, 
-            n_flow_blocks = 6, 
+            n_flow_blocks = 8, 
             n_flow_hidden = 64,
             base_dist = base_type,
-            alphas = [7.0, 0.5])
+            alphas = [6.0, 0.5])
 
-ctnf.load_encoder("./pretrained_models/cifar_300.pth")
+ctnf.load_encoder('./pretrained_models/mnist_encoder_50.pth')
 ctnf.encoder.eval()
 
 # optimize MAF and SurNorm, respectively.
 optimizer = optim.Adam(ctnf.flows.parameters(), lr = 0.01)
 pi_optim  = optim.Adam(ctnf.surnorm.parameters(), lr = 0.01)
-scheduler = optim.lr_scheduler.StepLR(optimizer, step_size = 2000, gamma = 0.1)
+scheduler = optim.lr_scheduler.StepLR(optimizer, step_size = 1500, gamma = 0.1)
 device    = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 epochs = 30
@@ -102,7 +114,7 @@ for epoch in range(epochs):
         
         if w_adv == True:
             w_img = wasserstein_example(x.detach().clone(), y.detach().clone(),
-                                        lamb = 1.5, max_lr0 = 0.01,
+                                        lamb = 2.2, max_lr0 = 0.01,
                                         model = ctnf)
 
 
@@ -119,7 +131,7 @@ for epoch in range(epochs):
             entropy = torch.sum(w_gamma * torch.log(w_gamma + eps), dim = 1)
             entropy = torch.mean(entropy)
             
-            loss = nll + 5.0*entropy
+            loss = nll + 7.0*entropy
         else:
             loss = nll
 
@@ -130,7 +142,7 @@ for epoch in range(epochs):
         optimizer.step()
         scheduler.step()
 
-        if (step+1) % 500 == 0 or step == 1497:
+        if (step+1) % 300 == 0:
             for param in optimizer.param_groups:
                 print("Learning Rate: ", param['lr'])
             cnt = 0
@@ -170,38 +182,40 @@ for epoch in range(epochs):
             valid_entropy = -np.sum(probs * np.log(probs + 10e-9), axis = 1)
             print("{}th epoch {}th step, \nValidation Accuracy: {:.3f}, ece: {:.3f}".format(epoch, step, val_score, ece(np.asarray(probs), np.asarray(labels))))
             '''
+            
+            for k in range(5):
+                for i, batch in enumerate(corruption_loader[k]):
+                    cnt, total = (0, 0)
+                    probs = []
+                    labels = []
+                    x = torch.as_tensor(batch[0], device = device, dtype = torch.float32)
+                    y = torch.as_tensor(batch[1], device = device, dtype = torch.int64)
+                    
+                    with torch.no_grad():
+                        latents = ctnf.encoder(x)
 
-            for i, batch in enumerate(corruption_loader):
-                cnt, total = (0, 0)
-                probs = []
-                labels = []
-                x = torch.as_tensor(batch[0], device = device, dtype = torch.float32)
-                y = torch.as_tensor(batch[1], device = device, dtype = torch.int64)
-                
-                with torch.no_grad():
-                    latents = ctnf.encoder(x)
+                    gamma, sldj = ctnf.flows(latents)
+                    dirichlet, logpsz = ctnf.surnorm(gamma)
+                    preds = ctnf.predict(dirichlet, sldj+logpsz)
 
-                gamma, sldj = ctnf.flows(latents)
-                dirichlet, logpsz = ctnf.surnorm(gamma)
-                preds = ctnf.predict(dirichlet, sldj+logpsz)
+                    #preds = prediction(gamma, sldj, alphas, p_type, base_dists = base_dist, pi = pi)
+                    preds = preds.to(device)
+                    preds_idx = torch.max(preds, dim = 1)[1]
+                    
+                    cnt += sum(y == preds_idx)
+                    total += y.shape[0]
 
-                #preds = prediction(gamma, sldj, alphas, p_type, base_dists = base_dist, pi = pi)
-                preds = preds.to(device)
-                preds_idx = torch.max(preds, dim = 1)[1]
-                
-                cnt += sum(y == preds_idx)
-                total += y.shape[0]
+                    for pred, label in zip(preds, y):
+                        probs.append(pred.tolist())
+                        labels.append(label.item())
 
-                for pred, label in zip(preds, y):
-                    probs.append(pred.tolist())
-                    labels.append(label.item())
+                    val_c_score = cnt / float(total)
+                    calibration_error = ece(np.asarray(probs), np.asarray(labels))
+                    print("Corruption {} ACC: {:.3f} ECE: {:.3f}"\
+                           .format(k+1, val_c_score, ece(np.asarray(probs), np.asarray(labels))))
+                    break
 
-                val_c_score = cnt / float(total)
-                calibration_error = ece(np.asarray(probs), np.asarray(labels))
-                print("Corruption {} ACC: {:.3f} ECE: {:.3f}"\
-                       .format(i+1, val_c_score, ece(np.asarray(probs), np.asarray(labels))))
-
-        
+            
             entropies = []
             for i, batch in enumerate(ood_loader):
 
@@ -236,59 +250,7 @@ for epoch in range(epochs):
                 print("[DEBUG] NaN Value is detected in ood_entropy")
                 sys.exit()
             #print("valid entropy: ", np.quantile(valid_entropy, [0, 0.25, 0.5, 0.75, 1]))
-            print("ood entropy: ", np.quantile(entropies.cpu().detach().numpy(), [0, 0.25, 0.5, 0.75, 1]))
-            '''
-            lsun_entropies = []
-            lsun_probs = []
-            for i, batch in enumerate(lsun_loader):
+            print("ood entropy quantile: ", np.quantile(entropies.cpu().detach().numpy(), [0, 0.25, 0.5, 0.75, 1]))
+            torch.save(ctnf.flows.state_dict(), os.path.join("./pretrained_models", "2mnist_{}epoch_{}step_flows.pth".format(epoch, step)))
+            torch.save(ctnf.surnorm.state_dict(), os.path.join("./pretrained_models", "2mnist_{}epoch_{}step_surnorm.pth".format(epoch, step)))
 
-                x = batch.to(device)
-                
-                with torch.no_grad():
-                    latents = encoder(x)
-
-                gamma, sldj = flow(latents)
-
-                preds = prediction(gamma, sldj, alphas, p_type, base_dists = base_dist, pi = pi)
-                ood_probs.append(preds)
-                preds = preds.to(device)
-                lsun_probs.append(preds)
-
-                entropy = -torch.sum(preds * torch.log(preds + 10e-9), dim = 1)
-                lsun_entropies.append(entropy)
-
-                if i == 10: break
-            
-            tiny_entropies = []
-            tiny_probs = []
-            for i, batch in enumerate(tiny_loader):
-
-                x = batch.to(device)
-                
-                with torch.no_grad():
-                    latents = encoder(x)
-
-                gamma, sldj = flow(latents)
-
-                preds = prediction(gamma, sldj, alphas, p_type, base_dists = base_dist, pi = pi)
-                ood_probs.append(preds)
-                preds = preds.to(device)
-                tiny_probs.append(preds)
-
-                entropy = -torch.sum(preds * torch.log(preds + 10e-9), dim = 1)
-                tiny_entropies.append(entropy)
-
-                if i == 10: break
-            
-            lsun_entropies = torch.cat(lsun_entropies)
-            tiny_entropies = torch.cat(tiny_entropies)
-            lsun_probs = torch.cat(lsun_probs)
-            tiny_probs = torch.cat(tiny_probs)
-            print("lsun entropy: ", np.quantile(lsun_entropies.cpu().detach().numpy(), [0, 0.25, 0.5, 0.75, 1]))
-            print("tiny entropy: ", np.quantile(tiny_entropies.cpu().detach().numpy(), [0, 0.25, 0.5, 0.75, 1]))
-            ood_probs = torch.cat(ood_probs)
-            print(ood_probs.shape)
-            '''
-        #print("entropy mean: ", torch.mean(entropies))
-            #print("entropy[:10]: ", entropies[:10])
-#torch.save(flow.state_dict(), os.path.join(flow_path, "adv_b1024_init_e100_L12_epoch{}".format(epoch)))

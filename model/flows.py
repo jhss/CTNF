@@ -298,8 +298,12 @@ class SurNorm(nn.Module):
         s = torch.sum(inputs, dim = 1)
         dirichlet = inputs / s.reshape(-1, 1)
         sum_preds = self.pi(dirichlet).squeeze(1)
+        #print("sum_preds: ", sum_preds)
+        #print("s : ", s)
         logpsz    = Gamma(sum_preds, 1).log_prob(s) - self.num_inputs * torch.log(sum_preds + 10e-9)
-
+        
+        #print("Dirichlet: ", dirichlet)
+        #print("logpsz: ", logpsz)
         return dirichlet, logpsz.unsqueeze(1)
 
     def inverse(self, inputs):
